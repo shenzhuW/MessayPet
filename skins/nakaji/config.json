@@ -1,0 +1,20 @@
+{
+  "name": "年糕",
+  "description": "一个可爱的二次元人物角色",
+  "moving_actions": ["walk", "run"],
+  "state_actions": ["idle", "yb", "fly", "think", "rest", "happy", "qq", "mm", "nl"],
+  "passive_actions": ["fall", "land", "held", "interact"],
+  "action_descriptions": {
+    "walk": "四处走动探索",
+    "run": "快速奔跑",
+    "idle": "原地休息，待机状态（没事的时候可以待机）",
+    "rest": "累了，休息恢复精力",
+    "happy": "表达自己的开心（心情好时）",
+    "mm": "鞠躬，向主人表达敬意",
+    "qq": "荡秋千，自己玩耍",
+    "nl": "释放技能，自己玩耍",
+    "think": "思考状态",
+    "fly": "跳一下，自己玩耍",
+    "yb": "鼓掌，给主人鼓掌或自己表达开心"
+  }
+}

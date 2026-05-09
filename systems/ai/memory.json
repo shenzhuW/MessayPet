@@ -1,0 +1,6 @@
+{
+    "key": "example_fact",
+    "value": "这是一个示例记忆，用户可以根据需要编辑或删除",
+    "confidence": 0.5,
+    "tags": ["示例"]
+}

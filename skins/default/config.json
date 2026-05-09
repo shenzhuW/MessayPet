@@ -1,0 +1,18 @@
+{
+  "name": "Default Pixel Pet",
+  "author": "PixelPal",
+  "version": "1.0.0",
+  "frame_size": [32, 32],
+  "moving_actions": ["walk", "run"],
+  "state_actions": ["idle", "eat", "drink", "rest", "happy", "interact"],
+  "passive_actions": ["fall", "land", "held"],
+  "action_descriptions": {
+    "walk": "四处走动探索",
+    "run": "快速奔跑",
+    "idle": "原地休息，待机状态",
+    "eat": "吃东西恢复饱食度",
+    "drink": "喝水恢复饥渴度",
+    "rest": "休息恢复精力",
+    "happy": "开心玩耍（心情好时）"
+  }
+}
