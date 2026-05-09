@@ -435,4 +435,4 @@ n部分宠物立绘素材来源于 [Bilibili Space](https://space.bilibili.com/1
 
 ## 许可证
 
-MIT License
+GPL v3.0 License
