@@ -51,13 +51,14 @@ class ActionHistory:
         self._records.clear()
 
     def to_prompt_string(self, limit: int = 10) -> str:
-        """转换为用于 prompt 的字符串"""
+        """转换为用于 prompt 的字符串（显示最新 limit 条）"""
         recent = self.get_recent(limit)
         if not recent:
             return "（无历史）"
 
         lines = []
-        for i, record in enumerate(recent):
-            time_ago = int(time.time() - record.timestamp)
-            lines.append(f"{i+1}. {record.action}（{record.duration}秒）")
-        return "\n".join(lines)
+        # 只显示最新的 limit 条
+        display_records = recent[-limit:] if len(recent) > limit else recent
+        for record in display_records:
+            lines.append(f"- {record.action}（{record.duration}秒）")
+        return "\n".join(lines) if lines else "（无历史）"

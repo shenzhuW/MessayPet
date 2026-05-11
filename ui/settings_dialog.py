@@ -396,6 +396,16 @@ class SettingsDialog(QDialog):
         """创建基础设置页面"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
+        layout.setContentsMargins(5, 5, 5, 5)
+
+        # 使用滚动区域
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        scroll_content = QWidget()
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setContentsMargins(5, 5, 15, 5)
 
         # 宠物大小设置
         size_group = QGroupBox("宠物大小")
@@ -475,10 +485,73 @@ class SettingsDialog(QDialog):
 
         group.setLayout(form)
         layout.addWidget(group)
-        layout.addStretch()
+
+        # 间隔设置
+        interval_group = QGroupBox("气泡间隔设置")
+        interval_form = QFormLayout()
+
+        # 气泡间隔
+        bubble_layout = QHBoxLayout()
+        self.bubble_min_spin = QSlider(Qt.Orientation.Horizontal)
+        self.bubble_min_spin.setRange(30, 300)
+        self.bubble_min_spin.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.bubble_min_label = QLabel("60秒")
+        self.bubble_min_spin.valueChanged.connect(lambda v: self.bubble_min_label.setText(f"{v}秒"))
+        bubble_layout.addWidget(self.bubble_min_spin)
+        bubble_layout.addWidget(self.bubble_min_label)
+        bubble_hint = QLabel("气泡随机触发的间隔范围（30-300秒）")
+        bubble_hint.setStyleSheet("color: #888; font-size: 10px;")
+
+        bubble_layout2 = QHBoxLayout()
+        self.bubble_max_spin = QSlider(Qt.Orientation.Horizontal)
+        self.bubble_max_spin.setRange(60, 600)
+        self.bubble_max_spin.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.bubble_max_label = QLabel("300秒")
+        self.bubble_max_spin.valueChanged.connect(lambda v: self.bubble_max_label.setText(f"{v}秒"))
+        bubble_layout2.addWidget(self.bubble_max_spin)
+        bubble_layout2.addWidget(self.bubble_max_label)
+
+        interval_form.addRow("最小间隔:", bubble_layout)
+        interval_form.addRow("最大间隔:", bubble_layout2)
+        interval_form.addRow("", bubble_hint)
+
+        # 动作间隔
+        action_layout = QHBoxLayout()
+        self.action_min_spin = QSlider(Qt.Orientation.Horizontal)
+        self.action_min_spin.setRange(60, 300)
+        self.action_min_spin.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.action_min_label = QLabel("60秒")
+        self.action_min_spin.valueChanged.connect(lambda v: self.action_min_label.setText(f"{v}秒"))
+        action_layout.addWidget(self.action_min_spin)
+        action_layout.addWidget(self.action_min_label)
+
+        action_layout2 = QHBoxLayout()
+        self.action_max_spin = QSlider(Qt.Orientation.Horizontal)
+        self.action_max_spin.setRange(120, 600)
+        self.action_max_spin.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.action_max_label = QLabel("300秒")
+        self.action_max_spin.valueChanged.connect(lambda v: self.action_max_label.setText(f"{v}秒"))
+        action_layout2.addWidget(self.action_max_spin)
+        action_layout2.addWidget(self.action_max_label)
+
+        action_hint = QLabel("动作决策间隔（idle 等待后再次决策的时间）")
+        action_hint.setStyleSheet("color: #888; font-size: 10px;")
+
+        interval_form.addRow("动作最小间隔:", action_layout)
+        interval_form.addRow("动作最大间隔:", action_layout2)
+        interval_form.addRow("", action_hint)
+
+        interval_group.setLayout(interval_form)
+        scroll_layout.addWidget(interval_group)
+
+        scroll_layout.addStretch()
+
+        scroll.setWidget(scroll_content)
+        layout.addWidget(scroll)
 
         self._load_pet_size()
         self._load_llm_config()
+        self._load_interval_settings()
         return widget
 
     def _setup_ui(self):
@@ -550,6 +623,24 @@ class SettingsDialog(QDialog):
             "model": self.llm_model.text().strip(),
         }
         self.config_manager.save_llm_config(llm_config)
+
+    def _load_interval_settings(self):
+        """加载间隔设置"""
+        settings = self.config_manager.load_interval_settings()
+        self.bubble_min_spin.setValue(settings.get("bubble_min_interval", 60))
+        self.bubble_max_spin.setValue(settings.get("bubble_max_interval", 300))
+        self.action_min_spin.setValue(settings.get("action_min_interval", 60))
+        self.action_max_spin.setValue(settings.get("action_max_interval", 300))
+
+    def _save_interval_settings(self):
+        """保存间隔设置"""
+        settings = {
+            "bubble_min_interval": self.bubble_min_spin.value(),
+            "bubble_max_interval": self.bubble_max_spin.value(),
+            "action_min_interval": self.action_min_spin.value(),
+            "action_max_interval": self.action_max_spin.value(),
+        }
+        self.config_manager.save_interval_settings(settings)
 
     def _create_movement_tab(self) -> QWidget:
         """创建移动设置页面"""
@@ -1109,6 +1200,9 @@ class SettingsDialog(QDialog):
         # 保存 LLM 配置
         self._save_llm_config()
 
+        # 保存间隔设置
+        self._save_interval_settings()
+
         # 保存动作速度配置
         print(f"[SettingsDialog] 保存前的 _action_speeds: {self._action_speeds}")
         self.config_manager.save_action_speeds(self._action_speeds)
@@ -1131,6 +1225,17 @@ class SettingsDialog(QDialog):
         if parent and hasattr(parent, 'animation_manager') and parent.animation_manager:
             parent.animation_manager.set_action_frame_speeds(self._action_frame_speeds)
             parent.animation_manager.restart_idle_animation()
+
+        # 实时更新间隔设置
+        if parent:
+            interval_settings = {
+                "bubble_min_interval": self.bubble_min_spin.value(),
+                "bubble_max_interval": self.bubble_max_spin.value(),
+                "action_min_interval": self.action_min_spin.value(),
+                "action_max_interval": self.action_max_spin.value(),
+            }
+            if hasattr(parent, 'update_interval_settings'):
+                parent.update_interval_settings(interval_settings)
 
         # 保存皮肤选择
         if self._selected_skin:

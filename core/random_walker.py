@@ -49,6 +49,10 @@ class RandomWalker:
         # 配置的动作速度
         self._action_speeds = self.DEFAULT_ACTION_SPEEDS.copy()
 
+        # 动画循环计数
+        self._target_loops = 0
+        self._current_loops = 0
+
     # ========== 回调设置 ==========
 
     def set_position_callback(self, callback: Callable[[int, int, float], None]):
@@ -108,18 +112,44 @@ class RandomWalker:
         self._is_paused = True
         self._current_action = action
         self._stop_moving()
+        print(f"[RandomWalker] execute_state: {action}, target_loops={getattr(self, '_target_loops', 'N/A')}")
 
         # 触发动画回调
         if self._animation_callback:
             self._animation_callback(action)
 
-    def notify_action_duration(self, duration: float):
-        """通知动作持续时间（用于状态动作）"""
-        # 状态动作完成后触发回调
+    def notify_action_duration(self, duration: float, loop_count: int = None):
+        """通知动作持续时间（用于状态动作）
+
+        Args:
+            duration: 移动动作的持续时间（秒），或状态动作的循环次数
+            loop_count: 状态动作的循环次数，如果为 None 则用 duration 作为循环次数
+        """
+        # 状态动作：用循环次数控制
+        if loop_count is not None:
+            self._target_loops = loop_count
+            self._current_loops = 0
+            # 通过动画回调触发计数
+            # 注意：需要外部在每次动画循环结束时调用 _on_animation_loop()
+            return
+
+        # 移动动作：用时间控制
         def on_complete():
             if self._action_complete_callback:
                 self._action_complete_callback(self._current_action)
         QTimer.singleShot(int(duration * 1000), on_complete)
+
+    def _on_animation_loop(self):
+        """动画循环一次完成（由 AnimationManager 调用）"""
+        if hasattr(self, '_target_loops') and self._target_loops > 0:
+            self._current_loops += 1
+            print(f"[RandomWalker] Animation loop: {self._current_loops}/{self._target_loops} (action: {self._current_action})")
+            if self._current_loops >= self._target_loops:
+                self._target_loops = 0
+                self._current_loops = 0
+                print(f"[RandomWalker] Animation complete, triggering callback")
+                if self._action_complete_callback:
+                    self._action_complete_callback(self._current_action)
 
     # ========== 内部方法 ==========
 

@@ -205,3 +205,27 @@ class ConfigManager:
                     pass
         finally:
             winreg.CloseKey(key)
+
+    # ========== 间隔设置 ==========
+
+    def save_interval_settings(self, settings: dict):
+        """保存间隔设置"""
+        config = self._load_config()
+        config["interval_settings"] = settings
+        self._save_config(config)
+
+    def load_interval_settings(self) -> dict:
+        """加载间隔设置（带默认值）"""
+        config = self._load_config()
+        defaults = {
+            "bubble_min_interval": 60,      # 气泡随机触发最小间隔（秒）
+            "bubble_max_interval": 300,     # 气泡随机触发最大间隔（秒）
+            "action_min_interval": 60,      # 动作间隔最小时间（秒）
+            "action_max_interval": 300,     # 动作间隔最大时间（秒）
+        }
+        stored = config.get("interval_settings", {})
+        # 合并默认值和存储的值
+        for key, default in defaults.items():
+            if key not in stored:
+                stored[key] = default
+        return stored

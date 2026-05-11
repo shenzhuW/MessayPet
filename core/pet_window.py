@@ -79,6 +79,8 @@ class PetWindow(QWidget):
                 self._random_walker.set_action_speeds(saved_speeds)
             self._random_walker.set_position_callback(self.move_to_target)
             self._random_walker.set_animation_callback(self._on_walker_animation)
+            # 连接动画循环回调（用于状态动作的循环计数）
+            self.animation_manager._on_loop_complete = self._random_walker._on_animation_loop
             # 注意：不再调用 start()，等待 ActionDecider 决策后执行
         else:
             self._random_walker = None
@@ -128,7 +130,6 @@ class PetWindow(QWidget):
             self.llm_client = llm_client
         else:
             llm_config = LLMConfig()
-            print(llm_config)
             self.llm_client = LLMClient(llm_config)
         self._chat_in_progress = False
         self._chat_cancelled = False
@@ -175,6 +176,9 @@ class PetWindow(QWidget):
         self.context_menu = ContextMenu(stat_manager, config_manager, window_tracker,
                                         emotion_analyzer=self._emotion_analyzer, parent=self)
 
+        # 间隔设置（需要在定时器之前初始化）
+        self._interval_settings = config_manager.load_interval_settings()
+
         # 随机触发定时器（1-5 分钟）
         self._random_trigger_timer = QTimer()
         self._random_trigger_timer.timeout.connect(self._on_random_trigger)
@@ -205,11 +209,21 @@ class PetWindow(QWidget):
         self._last_click_time = 0
         self._tripple_click_timer = QTimer()
         self._tripple_click_timer.setSingleShot(True)
+
+        # Hook 通知状态追踪（用于判断是否要覆盖当前气泡）
+        self._current_hook_status = None  # 当前显示的hook状态
         self._tripple_click_timer.timeout.connect(self._reset_tripple_click)
 
         # 落地动画状态
         self._is_playing_land_animation = False
         self._load_land_animation()
+
+        # 防止重复触发 idle 等待
+        self._idle_wait_pending = False
+
+        # 窗口切换冷却时间
+        self._last_window_trigger = 0
+        self._window_trigger_cooldown = 5000  # 5秒冷却
 
         # 订阅事件
         self._subscribe_events()
@@ -237,31 +251,69 @@ class PetWindow(QWidget):
         if os.path.exists(self._hook_file):
             try:
                 with open(self._hook_file, "r", encoding="utf-8") as f:
-                    text = f.read().strip()
+                    content = f.read().strip()
 
-                print(f"[Hook] Read: {text}")
+                
+                # 解析状态和消息（格式: "状态|消息"）
+                status = "normal"
+                text = content
+                if "|" in content:
+                    parts = content.split("|", 1)
+                    status = parts[0]
+                    text = parts[1] if len(parts) > 1 else ""
 
+                
                 if text:
-                    # 用 LLM 简化到 30 字以内
-                    summarized = self._summarize_text(text)
-                    if summarized:
-                        text = summarized
-                    # 锁定气泡 8 秒，不被替代
-                    lock_time = QDateTime.currentMSecsSinceEpoch() + 8000
-                    self.chat_bubble._locked_until = lock_time
-                    print(f"[Hook] Lock until: {lock_time}, current: {QDateTime.currentMSecsSinceEpoch()}")
-                    self._show_behavior(text, min_duration=8000)
+                    # 检查气泡是否正在锁定中
+                    current_time = QDateTime.currentMSecsSinceEpoch()
+                    locked_until = getattr(self.chat_bubble, '_locked_until', 0)
+                    is_locked = locked_until > current_time
+
+                    if is_locked:
+                        # 气泡锁定中，强制更新文本和颜色
+                        self.chat_bubble._locked_until = 0
+                        self.chat_bubble.hide()
+
+                        lock_time = current_time + 5000
+                        self.chat_bubble._locked_until = lock_time
+                        self._current_hook_status = status
+
+                        # 根据状态设置颜色
+                        if status == "waiting":
+                            self.chat_bubble.set_waiting()
+                        elif status == "complete":
+                            self.chat_bubble.set_complete()
+                        else:
+                            self.chat_bubble.reset_border()
+
+                        self._show_behavior(text, min_duration=5000, reset_border=False)
+                    else:
+                        # 气泡未锁定，显示新状态
+                        # 锁定气泡 8 秒，不被替代
+                        lock_time = current_time + 5000
+                        self.chat_bubble._locked_until = lock_time
+                        self._current_hook_status = status
+
+                        # 根据状态设置边框颜色
+                        if status == "waiting":
+                            self.chat_bubble.set_waiting()
+                        elif status == "complete":
+                            self.chat_bubble.set_complete()
+                        else:
+                            self.chat_bubble.reset_border()
+
+                        self._show_behavior(text, min_duration=5000, reset_border=False)
                 os.remove(self._hook_file)
-            except Exception as e:
-                print(f"[PetWindow] Hook notification error: {e}")
+            except Exception:
+                pass
 
     def _summarize_text(self, text: str) -> str:
         """使用 Bubble LLM 简化文本到 30 字以内"""
-        import httpx
-        from prompts.system import build_system_prompt
-        print(f"[PetWindow] Summarizing text: {text}")
         if not text or len(text) <= 30:
             return text
+
+        import httpx
+        from prompts.system import build_system_prompt
 
         # 加载 Bubble LLM 配置
         llm_config = self.config_manager.load_llm_config()
@@ -278,10 +330,10 @@ class PetWindow(QWidget):
         )
 
         user_prompt = f"""请将以下消息简化到30个字以内，只保留核心信息，用中文回复：
-                {text}
-                直接输出简化后的内容。
-                - 如果是'Read: Wait: Edit'，则提醒用户claude code在等待确认
-                - 如果是'Read: Claude finished'，则告知用户claude code已经完成"""
+{text}
+直接输出简化后的内容。
+- 如果是'Read: Wait: Edit'，则提醒用户claude code在等待确认
+- 如果是'Read: Claude finished'，则告知用户claude code已经完成"""
 
         try:
             base = base_url.rstrip('/')
@@ -312,11 +364,9 @@ class PetWindow(QWidget):
                     content = choices[0].get("message", {}).get("content", "")
                     content = content.strip().strip('"\'')
                     if content:
-                        print(f"[Hook] Summarized: {content}")
                         return content
-        except Exception as e:
-            print(f"[Hook] Summarize error: {e}")
-        print(text)
+        except Exception:
+            pass
         return text[:30]
 
     def _load_default_skin(self):
@@ -711,7 +761,7 @@ class PetWindow(QWidget):
             pet_center_x = self.x() + self.width() // 2
             bubble_width = self.chat_bubble.width()
             bubble_x = pet_center_x - bubble_width // 2
-            bubble_y = self.y() - self.chat_bubble.height() - 5
+            bubble_y = self.y() - self.chat_bubble.height() - 7
             self.chat_bubble.move(int(bubble_x), int(max(0, bubble_y)))
 
     def _subscribe_events(self):
@@ -726,33 +776,55 @@ class PetWindow(QWidget):
         pass  # 此功能已迁移到 EmotionAnalyzer
 
     def _schedule_random_trigger(self):
-        """安排下一次随机触发（1-5 分钟）"""
+        """安排下一次随机触发"""
         self._random_trigger_timer.stop()
-        interval = random.randint(60, 300) * 1000  # 1-5 分钟转换为毫秒
+        min_interval = self._interval_settings.get("bubble_min_interval", 60)
+        max_interval = self._interval_settings.get("bubble_max_interval", 300)
+        interval = random.randint(min_interval, max_interval) * 1000
         self._random_trigger_timer.start(interval)
 
     def _on_random_trigger(self):
         """随机触发情绪分析和气泡"""
-        # print("[PetWindow] Random trigger fired")
         self._random_trigger_timer.stop()
 
-        def on_bubble(bubble_text: str):
-            if bubble_text:
-                self._show_behavior(bubble_text)
+        # 检查气泡是否被锁定（hook 通知正在显示），如果是则跳过
+        from PySide6.QtCore import QDateTime
+        current_time = QDateTime.currentMSecsSinceEpoch()
+        locked_until = getattr(self.chat_bubble, '_locked_until', 0)
+        is_locked = locked_until > current_time
+
+        if is_locked:
+            self._schedule_random_trigger()
+            return
 
         self._emotion_analyzer.analyze_and_generate(trigger_type="random")
 
         # 安排下一次随机触发
         self._schedule_random_trigger()
 
-    def _show_behavior(self, text: str, min_duration: int = 4000):
+    def _show_behavior(self, text: str, min_duration: int = 4000, reset_border: bool = True, reset_timer: bool = True):
         """显示行为气泡
         Args:
             text: 显示的文字
             min_duration: 最小显示时间（毫秒），Hook 通知需要至少 5000ms
+            reset_border: 是否重置边框颜色（hook 通知不需要重置）
+            reset_timer: 是否重置随机触发定时器
         """
+        from PySide6.QtCore import QDateTime
+        current_time = QDateTime.currentMSecsSinceEpoch()
+        locked_until = getattr(self.chat_bubble, '_locked_until', 0)
+        is_locked = locked_until > current_time
+
+        # 如果气泡被锁定且尚未到期，不重置边框（保持 hook 通知的颜色）
+        # 但如果气泡已隐藏，说明之前的 hook 已结束，应该恢复正常
+        if reset_border:
+            if not is_locked or not self.chat_bubble.isVisible():
+                self.chat_bubble.reset_border()
         self.chat_bubble.show_text(text, duration=min_duration)
         self._update_bubble_position()
+        # 非随机触发后，重置定时器
+        if reset_timer:
+            self._schedule_random_trigger()
 
     def _play_behavior_animation(self, behavior):
         """播放行为动画"""
@@ -801,32 +873,49 @@ class PetWindow(QWidget):
             self._is_executing_action = True
             self._execute_action(result)
 
-            # 动作执行完后切换到 idle 待机状态，等待 30-50 秒再请求下一个动作
-            import random
-            idle_time = random.randint(30, 50)
-
-            def after_action_complete():
-                # 进入 idle 等待阶段
-                self._is_in_idle_wait = True
-                self._is_executing_action = False
-                # 切换到 idle 待机
-                self._random_walker.execute_state("idle")
-                # 记录剩余等待时间（用于掉落恢复后继续等待）
-                self._remaining_idle_time = idle_time * 1000
-
-                def after_idle():
-                    # idle 等待结束，可以请求下一个动作
-                    self._is_in_idle_wait = False
-                    self._remaining_idle_time = 0
-                    self._request_action_decision()
-
-                QTimer.singleShot(idle_time * 1000, after_idle)
-
-            QTimer.singleShot(result.duration * 1000, after_action_complete)
+            action = result.action
+            if action in self._action_decider.MOVING_ACTIONS:
+                # 移动动作用 duration（秒）控制
+                QTimer.singleShot(result.duration * 1000, self._start_idle_wait)
+            # 状态动作由 _on_action_complete 回调处理，不设置定时器
         else:
             # 决策失败，稍后重试
             QTimer.singleShot(10000, self._request_action_decision)
 
+    def _start_idle_wait(self):
+        """开始 idle 等待阶段"""
+        # 防止重复触发
+        if self._idle_wait_pending:
+                        return
+        self._idle_wait_pending = True
+
+        
+        # 进入 idle 等待阶段
+        self._is_in_idle_wait = True
+        self._is_executing_action = False
+        # 切换到 idle 待机
+        if self._random_walker:
+            self._random_walker.execute_state("idle")
+
+        # 记录剩余等待时间（用于掉落恢复后继续等待）
+        min_interval = self._interval_settings.get("action_min_interval", 60)
+        max_interval = self._interval_settings.get("action_max_interval", 300)
+        idle_time = random.randint(min_interval, max_interval)
+        self._remaining_idle_time = idle_time * 1000
+
+        def after_idle():
+            # idle 等待结束
+            self._idle_wait_pending = False
+            self._is_in_idle_wait = False
+            self._remaining_idle_time = 0
+            self._request_action_decision()
+
+        QTimer.singleShot(idle_time * 1000, after_idle)
+
+    def update_interval_settings(self, settings: dict):
+        """更新间隔设置（从设置对话框调用）"""
+        self._interval_settings.update(settings)
+        
     def _execute_action(self, result):
         """执行动作决策"""
         if not result:
@@ -850,7 +939,13 @@ class PetWindow(QWidget):
             self._random_walker.execute_move(action, duration)
         else:
             self._random_walker.execute_state(action)
-            self._random_walker.notify_action_duration(duration)
+            if action == "idle":
+                # idle 用持续时间控制
+                QTimer.singleShot(int(duration * 1000), self._start_idle_wait)
+            else:
+                # 其他状态动作用循环次数控制（2-3次）
+                loop_count = max(2, min(3, duration))
+                self._random_walker.notify_action_duration(duration, loop_count=loop_count)
 
         # print(f"[PetWindow] 执行动作: {action}，持续 {duration} 秒")
 
@@ -870,16 +965,19 @@ class PetWindow(QWidget):
         if action in effects:
             effects[action]()
             self.stat_manager.save()
-            print(f"[PetWindow] 动作效果: {action} → 属性已更新")
-
+            
     def _on_action_complete(self, action: str):
         """动作完成回调"""
-        # print(f"[PetWindow] 动作完成: {action}")
+        # 如果之前有 idle 等待在 pending，先清理
+        if self._idle_wait_pending:
+            self._idle_wait_pending = False
+            self._is_in_idle_wait = False
 
         # 移动动作完成后也更新属性
         self._apply_action_effect(action)
 
-        # 注意：下一个决策已在 _on_action_decided 中调度
+        # 触发 idle 等待逻辑（移动动作的定时器也会调用这里）
+        self._start_idle_wait()
 
     def _on_walker_animation(self, animation_name: str):
         """RandomWalker 触发的动画回调"""
@@ -895,11 +993,17 @@ class PetWindow(QWidget):
     def _on_window_changed(self, data):
         """窗口切换时触发 LLM 情绪分析"""
         window_title = data.get("title", "")
-        # print(f"[PetWindow] Window changed: {window_title}")
+
+        # 检查冷却时间
+        import time
+        now = time.time() * 1000
+        if now - self._last_window_trigger < self._window_trigger_cooldown:
+            return
+        self._last_window_trigger = now
 
         # 30% 概率触发情绪分析
         if random.random() < 0.3:
-            self._emotion_analyzer.analyze_and_generate(trigger_type="window_change")
+                        self._emotion_analyzer.analyze_and_generate(trigger_type="window_change")
 
     def _reset_tripple_click(self):
         """重置三击计数"""
@@ -983,7 +1087,11 @@ class PetWindow(QWidget):
             data.get("reason", "")
         )
 
-        # 更新动画状态
+        # 只在非动作执行状态下才更新动画状态
+        # 防止情绪变化打断正在播放的动作动画（如 walk、qq 等）
+        if self._is_executing_action:
+            return
+
         target_state = self._emotion_state.get_animation_state()
         self._state_machine.set_state(target_state)
 

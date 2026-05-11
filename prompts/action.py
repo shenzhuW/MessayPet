@@ -16,26 +16,25 @@ ACTION_DECISION_REQUIREMENTS = """【动作选择规则】
    - 饥饿（<30）时优先选择 eat 动作 (**如果确认存在该动作**)
    - 饥渴（<30）时优先选择 drink 动作 (**如果确认存在该动作**)
    - 精力低（<30）时优先选择 rest 等休息动作
-   - 心情低（<30）时优先选择 run 等移动动作
+   - 心情低（<30）时优先选择 run、walk 等移动动作(**如果确认存在该动作**)
 2. 考虑时间因素：
    - 深夜/清晨（22-5点）更适合休息
    - 白天可以更活跃
-3. 动作禁止连续重复3次（置顶规则）
+3. 当前选择的动作禁止与上一个动作重复（置顶规则）
 4. 移动动作持续时间：5-10秒
-5. 状态动作持续时间：3-10秒
+5. 状态动作循环次数：2-3次（不是时间，是动画循环次数）
 6. **注意**：从可用动作中选择一个，必须优先选择动作历史中没有出现或次数较少的动作（置顶规则）"""
 
 # JSON 输出格式
 ACTION_JSON_FORMAT = """请返回 JSON（直接输出 JSON，不要其他内容）：
 {
   "action": "动作名称",
-  "duration": 持续秒数（整数）,
-  "reason": "动作选择理由（50字以内，先查看动作历史，优先选择动作历史中没有出现或次数较少的动作，第一考虑到【动作选择规则】的内容）"
+  "duration": 移动动作用持续秒数（5-10），状态动作用循环次数（2-3）,
+  "reason": "动作选择理由（50字以内，先查看动作历史，禁止选择上一个动作，优先选择动作历史中没有出现或次数较少的动作，第一考虑到【动作选择规则】的内容）"
 }"""
 
 # 可用动作模板
 ACTION_AVAILABLE_TEMPLATE = """【可用动作】
-所有可用：{all_actions}
 移动类：{moving_actions}
 状态类：{state_actions}"""
 
@@ -151,7 +150,7 @@ def build_action_prompt(
     # 动作历史
     parts.append("")
     parts.append("【动作历史】")
-    parts.append(action_history[:30] if action_history else "暂无")
+    parts.append(action_history if action_history else "暂无")
     parts.append("")
 
     # 已知信息

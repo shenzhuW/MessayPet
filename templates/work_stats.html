@@ -364,62 +364,17 @@
             margin-top: 2px;
         }
 
-        /* 时间线 */
-        .timeline-section {
-            margin-top: 32px;
-        }
-
-        .timeline {
-            display: flex;
-            height: 56px;
-            background: rgba(255, 255, 255, 0.5);
-            border-radius: var(--radius-md);
-            overflow: hidden;
-            padding: 6px;
-            gap: 3px;
-        }
-
-        .timeline-segment {
-            height: 100%;
-            border-radius: 6px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 9px;
-            color: white;
-            font-weight: 500;
-            transition: flex 0.5s ease;
-            min-width: 24px;
-            cursor: pointer;
-            position: relative;
-        }
-
-        .timeline-segment:hover {
-            transform: scaleY(1.05);
-            z-index: 1;
-        }
-
-        .timeline-segment span {
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            max-width: 100%;
-            padding: 0 4px;
-        }
-
-        .timeline-labels {
-            display: flex;
-            justify-content: space-between;
-            margin-top: 12px;
-            font-size: 11px;
-            color: var(--text-secondary);
-        }
-
         /* 周趋势图 */
         .week-trend {
             display: grid;
             grid-template-columns: repeat(7, 1fr);
             gap: 12px;
+        }
+
+        .month-trend {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+            gap: 8px;
         }
 
         .day-card {
@@ -586,6 +541,11 @@
 
             .week-trend .day-card:nth-child(n+5) {
                 display: none;
+            }
+
+            .month-trend {
+                grid-template-columns: repeat(auto-fill, minmax(50px, 1fr));
+                gap: 6px;
             }
 
             .project-item {
@@ -846,21 +806,7 @@
 
             const maxDuration = projects[0]?.duration || 1;
 
-            // 时间线
-            const startHour = 6, endHour = 24;
-            const totalHours = endHour - startHour;
-            const segments = records.map(r => {
-                const startDate = new Date(r.start * 1000);
-                const endDate = new Date(r.end * 1000);
-                let start = startDate.getHours() + startDate.getMinutes() / 60;
-                let end = endDate.getHours() + endDate.getMinutes() / 60;
-                start = Math.max(startHour, Math.min(start, endHour));
-                end = Math.max(start, Math.min(end, endHour));
-                return { title: r.title, start: start - startHour, duration: end - start };
-            });
-
             const visibleProjects = projects.slice(0, 20);
-            const visibleTotal = visibleProjects.reduce((s, p) => s + p.duration, 0);
 
             document.getElementById('todayContent').innerHTML = `
                 <div class="section-header">
@@ -903,25 +849,6 @@
                         `;
                     }).join('')}
                 </div>
-
-                <div class="timeline-section">
-                    <div class="section-header">
-                        <div class="section-title">时间线</div>
-                    </div>
-                    <div class="timeline">
-                        ${segments.map(s => {
-                            const width = (s.duration / totalHours * 100).toFixed(2);
-                            const color = COLORS[Math.abs(s.title.charCodeAt(0)) % COLORS.length];
-                            return `<div class="timeline-segment" style="flex:${width}%;background:${color}" title="${s.title} - ${formatDuration(s.duration * 3600)}"><span>${s.title.split(' - ')[0].substring(0, 6)}</span></div>`;
-                        }).join('')}
-                    </div>
-                    <div class="timeline-labels">
-                        <span>06:00</span>
-                        <span>12:00</span>
-                        <span>18:00</span>
-                        <span>24:00</span>
-                    </div>
-                </div>
             `;
         }
 
@@ -943,8 +870,10 @@
                 maxDayDuration = Math.max(maxDayDuration, dayTotal);
 
                 records.forEach(r => {
-                    if (!allProjects[r.title]) allProjects[r.title] = { title: r.title, duration: 0 };
-                    allProjects[r.title].duration += r.duration;
+                    // 优先按 group_key 分组，其次按 title 分组
+                    const key = r.group_key || r.title;
+                    if (!allProjects[key]) allProjects[key] = { title: r.title, group_key: key, duration: 0 };
+                    allProjects[key].duration += r.duration;
                 });
             }
 
@@ -953,6 +882,8 @@
             const totalWeek = days.reduce((s, d) => s + d.total, 0);
 
             const dayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+            const visibleWeekProjects = projects.slice(0, 20);
 
             document.getElementById('weekContent').innerHTML = `
                 <div class="week-trend">
@@ -970,8 +901,6 @@
                         `;
                     }).join('')}
                 </div>
-
-                const visibleWeekProjects = projects.slice(0, 20);
 
                 <div class="section-header" style="margin-top:32px">
                     <div class="section-title">项目分布</div>
@@ -1018,8 +947,10 @@
                 maxDayDuration = Math.max(maxDayDuration, dayTotal);
 
                 records.forEach(r => {
-                    if (!allProjects[r.title]) allProjects[r.title] = { title: r.title, duration: 0 };
-                    allProjects[r.title].duration += r.duration;
+                    // 优先按 group_key 分组，其次按 title 分组
+                    const key = r.group_key || r.title;
+                    if (!allProjects[key]) allProjects[key] = { title: r.title, group_key: key, duration: 0 };
+                    allProjects[key].duration += r.duration;
                 });
             }
 
@@ -1027,9 +958,11 @@
             const maxDuration = projects[0]?.duration || 1;
             const totalMonth = days.reduce((s, d) => s + d.total, 0);
 
+            const visibleMonthProjects = projects.slice(0, 20);
+
             document.getElementById('monthContent').innerHTML = `
-                <div class="week-trend">
-                    ${days.slice(0, 14).map((d, i) => {
+                <div class="month-trend">
+                    ${days.map((d, i) => {
                         const height = d.total > 0 ? Math.max(4, (d.total / maxDayDuration) * 80) : 4;
                         const dayIndex = new Date(d.date).getDay();
                         const dayName = ['日', '一', '二', '三', '四', '五', '六'][dayIndex];
@@ -1045,8 +978,6 @@
                         `;
                     }).join('')}
                 </div>
-
-                const visibleMonthProjects = projects.slice(0, 20);
 
                 <div class="section-header" style="margin-top:32px">
                     <div class="section-title">项目排行 Top ${visibleMonthProjects.length}</div>

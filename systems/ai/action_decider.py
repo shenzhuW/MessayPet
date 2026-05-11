@@ -75,7 +75,9 @@ class ActionDecider:
         def run_in_thread():
             try:
                 prompt = self._build_decision_prompt()
+                # print(f"\n========== [ActionDecider] Prompt ==========\n{prompt}\n==========================================")
                 response = self.llm_client.chat_complete(prompt)
+                # print(f"\n========== [ActionDecider] Response ==========\n{response}\n==========================================")
                 result = None
                 if response and response != "[Timeout]":
                     result = self._parse_decision(response)

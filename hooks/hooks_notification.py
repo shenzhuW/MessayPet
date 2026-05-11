@@ -83,19 +83,23 @@ def get_transcript_messages(transcript_path):
         return None, None
 
 
-def build_msg(hook: str, user_prompt: str, tool_name: str = "") -> str:
-    """构建消息"""
+def build_msg(hook: str, user_prompt: str, tool_name: str = "") -> tuple:
+    """构建消息和状态类型
+
+    Returns:
+        tuple: (消息文本, 状态类型) 状态类型: "waiting", "complete", "normal"
+    """
     if user_prompt and len(user_prompt) > 20:
         summary = user_prompt[:20] + "..."
     else:
         summary = user_prompt or "任务"
 
     if hook == "PermissionRequest":
-        return f"主人的「{summary}」在等待确认哦~"
+        return (f"主人的「{summary}」在等待确认哦~", "waiting")
     elif hook == "Stop":
-        return f"「{summary}」完成啦~撒花~"
+        return (f"「{summary}」完成啦~撒花~", "complete")
     else:
-        return f"Hook: {hook}"
+        return (f"Hook: {hook}", "normal")
 
 
 def main():
@@ -123,13 +127,14 @@ def main():
                 f.write(user_input[:200])
 
         if hook in ("Stop", "PermissionRequest"):
-            msg = build_msg(hook, user_input or "")
-            print(f"[Hook] Message: {msg}", file=sys.stderr)
+            msg, status = build_msg(hook, user_input or "")
+            print(f"[Hook] Message: {msg}, Status: {status}", file=sys.stderr)
 
             notify_file = os.path.join(os.path.expanduser("~"), ".deskpet", "hook_notification.txt")
             os.makedirs(os.path.dirname(notify_file), exist_ok=True)
+            # 格式: "状态|消息"
             with open(notify_file, "w", encoding="utf-8") as f:
-                f.write(msg)
+                f.write(f"{status}|{msg}")
 
 
 if __name__ == "__main__":

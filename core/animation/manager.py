@@ -24,6 +24,8 @@ class AnimationManager:
         self._action_frame_speeds: dict = {}
         # 当前动作 ID（用于实时更新帧率）
         self._current_action_id: str = "idle"
+        # 循环回调（用于状态动作的循环计数）
+        self._on_loop_complete: Optional[Callable] = None
 
     def set_action_frame_speed(self, action_id: str, fps: int):
         """设置动作的帧率"""
@@ -130,7 +132,11 @@ class AnimationManager:
             self._anim_timer.setInterval(frame_duration)
 
     def _tick(self):
+        was_at_last_frame = self.current_frame_index == self.frame_count - 1
         self._advance_frame()
+        # 如果刚回到第一帧（完成一次循环）
+        if was_at_last_frame and self.current_frame_index == 0 and self._on_loop_complete:
+            self._on_loop_complete()
         if self._on_update:
             self._on_update()
 
@@ -171,6 +177,8 @@ class AnimationManager:
         self._advance_frame()
         if self.current_frame_index == 0 and self.frame_count > 1:
             self._anim_timer.timeout.disconnect()
+            # 立即标记为已结束，防止重入
+            self._action_connection = None
             on_end()
         if self._on_update:
             self._on_update()
