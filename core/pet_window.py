@@ -275,7 +275,7 @@ class PetWindow(QWidget):
                     print(f"[Hook] 气泡锁定状态 - is_locked={is_locked}, locked_until={locked_until}, current={current_time}")
 
                     if is_locked:
-                        # 气泡锁定中，先清零锁定状态，然后更新内容
+                        # 气泡锁定中，强制更新内容
                         self.chat_bubble._locked_until = 0
                         self.chat_bubble.hide()
                         self._current_hook_status = status
@@ -288,10 +288,8 @@ class PetWindow(QWidget):
                         else:
                             self.chat_bubble.reset_border()
 
-                        # 在 _show_behavior 之前设置新锁定时间
-                        # 这样 show_text 中的条件检查会发现 _locked_until 不满足
-                        self.chat_bubble._locked_until = current_time + 5000
-                        self._show_behavior(text, min_duration=5000, reset_border=False, record_to_history=False)
+                        # 直接更新气泡文本（不清除锁定，让 _show_behavior 设置）
+                        self._update_bubble_text(text, duration=5000, record_to_history=False)
                     else:
                         # 气泡未锁定，显示新状态
                         # 锁定气泡 8 秒，不被替代
@@ -841,6 +839,17 @@ class PetWindow(QWidget):
         if reset_timer:
             self._schedule_random_trigger()
 
+    def _update_bubble_text(self, text: str, duration: int = 5000, record_to_history: bool = True):
+        """强制更新气泡文本（绕过锁定检查，用于 hook 通知）"""
+        # 设置锁定时间
+        from PySide6.QtCore import QDateTime
+        current_time = QDateTime.currentMSecsSinceEpoch()
+        self.chat_bubble._locked_until = current_time + duration
+
+        # 显示新内容
+        self.chat_bubble.show_text(text, duration=duration)
+        self._update_bubble_position()
+
     def _play_behavior_animation(self, behavior):
         """播放行为动画"""
         trigger = behavior.trigger.value if hasattr(behavior.trigger, 'value') else str(behavior.trigger)
@@ -951,6 +960,10 @@ class PetWindow(QWidget):
         self._action_history.add(action, duration)
         # 设置当前正在执行的动作
         self._action_history.set_current_action(action)
+
+        # 30% 概率显示动作气泡
+        if result.bubble_text and random.random() < 0.3:
+            self._show_behavior(result.bubble_text, min_duration=3000, source="action")
 
         # 更新当前动作
         self._random_walker.set_action(action)

@@ -24,6 +24,7 @@ class DecisionResult:
     action: str
     duration: int
     reason: str = ""
+    bubble_text: str = ""  # 执行动作时说的气泡文本
 
 
 class ActionDecider:
@@ -163,6 +164,7 @@ class ActionDecider:
             action = data.get("action", "")
             duration = int(data.get("duration", 5))
             reason = data.get("reason", "")
+            bubble_text = data.get("bubble_text", "")
 
             # 验证动作是否可用
             available = self.get_available_actions()
@@ -177,7 +179,7 @@ class ActionDecider:
             else:
                 duration = max(5, min(20, duration))
 
-            return DecisionResult(action=action, duration=duration, reason=reason)
+            return DecisionResult(action=action, duration=duration, reason=reason, bubble_text=bubble_text)
 
         except (json.JSONDecodeError, ValueError) as e:
             print(f"[ActionDecider] 解析失败: {e}")
