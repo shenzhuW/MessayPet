@@ -184,7 +184,7 @@ class ConfigManager:
     def set_autostart(self, enabled: bool):
         """启用或禁用开机自启动"""
         import winreg
-        import sys
+        import subprocess
         key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
         key = winreg.OpenKey(
             winreg.HKEY_CURRENT_USER,
@@ -194,9 +194,11 @@ class ConfigManager:
         )
         try:
             if enabled:
-                exe_path = sys.executable
+                # 获取 Python 路径并将 python.exe 替换为 pythonw.exe 避免终端窗口
+                python_path = subprocess.getoutput('py -0').split('\n')[0].split('"')[1] if 'py -0' else sys.executable
+                pythonw_path = python_path.replace('python.exe', 'pythonw.exe')
                 script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "main.py"))
-                command = f'"{exe_path}" "{script_path}"'
+                command = f'"{pythonw_path}" "{script_path}"'
                 winreg.SetValueEx(key, "DeskPet", 0, winreg.REG_SZ, command)
             else:
                 try:

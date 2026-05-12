@@ -55,12 +55,16 @@ def main():
         window_tracker=window_tracker,
         llm_client=llm_client,
     )
-    pet.show()
 
-    # 托盘管理器
+    # 托盘管理器（需要在 pet.show() 之前初始化，避免气泡显示时宠物还没准备好）
     tray_manager = TrayManager()
     tray_manager.setup(pet_window=pet)
     tray_manager.quit_requested.connect(lambda: cleanup_and_quit(app, pet, config_manager, window_tracker))
+
+    # 显示宠物窗口
+    pet.show()
+    pet.activateWindow()  # 激活窗口确保可见
+    QApplication.processEvents()  # 处理事件队列，确保窗口真正显示
 
     def cleanup_and_quit(application, pet_window, config_mgr, tracker):
         """退出前清理资源"""
