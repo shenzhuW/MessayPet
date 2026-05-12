@@ -144,19 +144,20 @@ class PetWindow(QWidget):
         self._last_x = x
         self._facing = "right"  # 默认朝右
 
+        # 动作历史（需要在 EmotionAnalyzer 之前创建）
+        self._action_history = ActionHistory(max_size=10)
+
         # LLM 情绪分析器（统一生成气泡）
         self._emotion_analyzer = EmotionAnalyzer(
             llm_client=self.llm_client,
             memory_manager=self.memory_manager,
             stat_manager=self.stat_manager,
             window_monitor=self._window_monitor,
-            event_bus=self.event_bus
+            event_bus=self.event_bus,
+            action_history=self._action_history
         )
         # 连接气泡信号到显示方法
-        self._emotion_analyzer.bubble_ready.connect(self._show_behavior)
-
-        # LLM 动作决策器
-        self._action_history = ActionHistory(max_size=10)
+        self._emotion_analyzer.bubble_ready.connect(lambda text, source: self._show_behavior(text, source=source))
         self._action_decider = ActionDecider(
             llm_client=self.llm_client,
             skin_manager=self.skin_manager,
@@ -253,7 +254,8 @@ class PetWindow(QWidget):
                 with open(self._hook_file, "r", encoding="utf-8") as f:
                     content = f.read().strip()
 
-                
+                print(f"[Hook] 检测到通知文件，内容: {content!r}")
+
                 # 解析状态和消息（格式: "状态|消息"）
                 status = "normal"
                 text = content
@@ -262,20 +264,20 @@ class PetWindow(QWidget):
                     status = parts[0]
                     text = parts[1] if len(parts) > 1 else ""
 
-                
+                print(f"[Hook] 解析后 - status={status}, text={text!r}")
+
                 if text:
                     # 检查气泡是否正在锁定中
                     current_time = QDateTime.currentMSecsSinceEpoch()
                     locked_until = getattr(self.chat_bubble, '_locked_until', 0)
                     is_locked = locked_until > current_time
 
+                    print(f"[Hook] 气泡锁定状态 - is_locked={is_locked}, locked_until={locked_until}, current={current_time}")
+
                     if is_locked:
-                        # 气泡锁定中，强制更新文本和颜色
+                        # 气泡锁定中，先清零锁定状态，然后更新内容
                         self.chat_bubble._locked_until = 0
                         self.chat_bubble.hide()
-
-                        lock_time = current_time + 5000
-                        self.chat_bubble._locked_until = lock_time
                         self._current_hook_status = status
 
                         # 根据状态设置颜色
@@ -286,7 +288,10 @@ class PetWindow(QWidget):
                         else:
                             self.chat_bubble.reset_border()
 
-                        self._show_behavior(text, min_duration=5000, reset_border=False)
+                        # 在 _show_behavior 之前设置新锁定时间
+                        # 这样 show_text 中的条件检查会发现 _locked_until 不满足
+                        self.chat_bubble._locked_until = current_time + 5000
+                        self._show_behavior(text, min_duration=5000, reset_border=False, record_to_history=False)
                     else:
                         # 气泡未锁定，显示新状态
                         # 锁定气泡 8 秒，不被替代
@@ -302,10 +307,13 @@ class PetWindow(QWidget):
                         else:
                             self.chat_bubble.reset_border()
 
-                        self._show_behavior(text, min_duration=5000, reset_border=False)
+                        self._show_behavior(text, min_duration=5000, reset_border=False, record_to_history=False)
                 os.remove(self._hook_file)
-            except Exception:
-                pass
+                print(f"[Hook] 成功显示气泡并删除文件")
+            except Exception as e:
+                print(f"[Hook] 异常: {e}")
+                import traceback
+                traceback.print_exc()
 
     def _summarize_text(self, text: str) -> str:
         """使用 Bubble LLM 简化文本到 30 字以内"""
@@ -802,13 +810,15 @@ class PetWindow(QWidget):
         # 安排下一次随机触发
         self._schedule_random_trigger()
 
-    def _show_behavior(self, text: str, min_duration: int = 4000, reset_border: bool = True, reset_timer: bool = True):
+    def _show_behavior(self, text: str, min_duration: int = 4000, reset_border: bool = True, reset_timer: bool = True, source: str = "unknown", record_to_history: bool = True):
         """显示行为气泡
         Args:
             text: 显示的文字
             min_duration: 最小显示时间（毫秒），Hook 通知需要至少 5000ms
             reset_border: 是否重置边框颜色（hook 通知不需要重置）
             reset_timer: 是否重置随机触发定时器
+            source: 气泡来源标识
+            record_to_history: 是否记录到历史
         """
         from PySide6.QtCore import QDateTime
         current_time = QDateTime.currentMSecsSinceEpoch()
@@ -820,6 +830,11 @@ class PetWindow(QWidget):
         if reset_border:
             if not is_locked or not self.chat_bubble.isVisible():
                 self.chat_bubble.reset_border()
+
+        # 记录气泡到历史（用于动作决策参考）
+        if text and self._action_history and record_to_history:
+            self._action_history.add_bubble(text, source=source)
+
         self.chat_bubble.show_text(text, duration=min_duration)
         self._update_bubble_position()
         # 非随机触发后，重置定时器
@@ -889,11 +904,15 @@ class PetWindow(QWidget):
                         return
         self._idle_wait_pending = True
 
-        
+
         # 进入 idle 等待阶段
         self._is_in_idle_wait = True
         self._is_executing_action = False
-        # 切换到 idle 待机
+
+        # 切换到 idle 状态
+        self._action_history.set_current_action("idle")
+
+        # 切换到 idle 待机动画
         if self._random_walker:
             self._random_walker.execute_state("idle")
 
@@ -930,6 +949,8 @@ class PetWindow(QWidget):
 
         # 记录到动作历史
         self._action_history.add(action, duration)
+        # 设置当前正在执行的动作
+        self._action_history.set_current_action(action)
 
         # 更新当前动作
         self._random_walker.set_action(action)

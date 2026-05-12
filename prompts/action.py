@@ -11,26 +11,24 @@ ACTION_ROLE_TEMPLATE = """【角色设定】
 {role_info}"""
 
 # 决策要求
-ACTION_DECISION_REQUIREMENTS = """【动作选择规则】
+ACTION_DECISION_REQUIREMENTS = """【动作优先规则】
 1. 根据状态选择动作：
-   - 饥饿（<30）时优先选择 eat 动作 (**如果确认存在该动作**)
-   - 饥渴（<30）时优先选择 drink 动作 (**如果确认存在该动作**)
-   - 精力低（<30）时优先选择 rest 等休息动作
-   - 心情低（<30）时优先选择 run、walk 等移动动作(**如果确认存在该动作**)
+   - 饥饿（<40）时优先选择 eat 动作 (**如果确认存在该动作**)
+   - 饥渴（<40）时优先选择 drink 动作 (**如果确认存在该动作**)
+   - 精力低（<40）时优先选择 rest 等休息动作
+   - 心情低（<40）时优先选择 run、walk 等移动动作(**如果确认存在该动作**)
 2. 考虑时间因素：
    - 深夜/清晨（22-5点）更适合休息
    - 白天可以更活跃
 3. 当前选择的动作禁止与上一个动作重复（置顶规则）
-4. 移动动作持续时间：5-10秒
-5. 状态动作循环次数：2-3次（不是时间，是动画循环次数）
-6. **注意**：从可用动作中选择一个，必须优先选择动作历史中没有出现或次数较少的动作（置顶规则）"""
+6. 参考【宠物说过的话】来选择动作，越新说的话权重越大"""
 
 # JSON 输出格式
 ACTION_JSON_FORMAT = """请返回 JSON（直接输出 JSON，不要其他内容）：
 {
   "action": "动作名称",
-  "duration": 移动动作用持续秒数（5-10），状态动作用循环次数（2-3）,
-  "reason": "动作选择理由（50字以内，先查看动作历史，禁止选择上一个动作，优先选择动作历史中没有出现或次数较少的动作，第一考虑到【动作选择规则】的内容）"
+  "duration": 移动动作用持续秒数（5-10秒），状态动作用循环次数（2-3次）,
+  "reason": "动作选择理由（150字以内，先查看【动作历史】以及【宠物说过的话】，禁止选择上一个动作。基于【动作优先规则】的前提下，优先选择动作历史中没有出现或次数较少的动作）"
 }"""
 
 # 可用动作模板
@@ -83,6 +81,7 @@ def build_action_prompt(
     state_actions: list = None,
     action_descriptions: dict = None,
     action_history: str = "",
+    bubble_history: str = "",
     known_facts: list = None
 ) -> str:
     """构建完整的动作决策 prompt"""
@@ -151,6 +150,12 @@ def build_action_prompt(
     parts.append("")
     parts.append("【动作历史】")
     parts.append(action_history if action_history else "暂无")
+    parts.append("")
+
+    # 气泡历史
+    parts.append("")
+    parts.append("【宠物说过的话】")
+    parts.append(bubble_history if bubble_history else "（无气泡历史）")
     parts.append("")
 
     # 已知信息

@@ -17,16 +17,17 @@ from prompts.emotion import (
 class EmotionAnalyzer(QObject):
     """LLM 驱动的情绪分析 + 气泡生成"""
 
-    # Signal to show bubble from main thread
-    bubble_ready = Signal(str)
+    # Signal to show bubble from main thread (text, source)
+    bubble_ready = Signal(str, str)
 
-    def __init__(self, llm_client, memory_manager, stat_manager, window_monitor, event_bus=None):
+    def __init__(self, llm_client, memory_manager, stat_manager, window_monitor, event_bus=None, action_history=None):
         super().__init__()
         self.llm_client = llm_client
         self.memory_manager = memory_manager
         self.stat_manager = stat_manager
         self.window_monitor = window_monitor
         self.event_bus = event_bus
+        self.action_history = action_history
         self._last_analysis_time = 0
         self._last_emotion: Optional[Dict] = None
         self._is_analyzing = False
@@ -59,9 +60,11 @@ class EmotionAnalyzer(QObject):
                 prompt = self._build_analysis_prompt(trigger_type)
                 user_message = build_analysis_user_message(prompt)
 
-                # print(f"[EmotionAnalyzer] User message:\n{user_message}\n")
+                print(f"\n========== [EmotionAnalyzer] Prompt ==========\n{user_message}\n==========================================")
 
                 response = self.llm_client.chat_complete(user_message)
+
+                print(f"\n========== [EmotionAnalyzer] Response ==========\n{response}\n==========================================")
 
                 if response and response != "[Timeout]":
                     result = self._parse_response(response)
@@ -86,7 +89,8 @@ class EmotionAnalyzer(QObject):
                         if self.memory_manager and hasattr(self.memory_manager, 'add_message'):
                             self.memory_manager.add_message("assistant", bubble_text)
 
-                        self.bubble_ready.emit(bubble_text)
+                        # 发送气泡信号（带上来源）
+                        self.bubble_ready.emit(bubble_text, trigger_type)
 
             except Exception as e:
                 import traceback
@@ -114,6 +118,16 @@ class EmotionAnalyzer(QObject):
             if hasattr(self.memory_manager, 'conversation'):
                 recent_conversation = self.memory_manager.conversation.get_recent(limit=20)
 
+        # 获取动作历史
+        action_history = ""
+        if self.action_history:
+            action_history = self.action_history.to_prompt_string()
+
+        # 获取当前正在执行的动作
+        current_action = ""
+        if self.action_history:
+            current_action = self.action_history.get_current_action() or ""
+
         # 获取当前窗口
         current_window = self.window_monitor.get_current_title() if self.window_monitor else ""
 
@@ -129,7 +143,9 @@ class EmotionAnalyzer(QObject):
                 current_window=current_window,
                 known_facts=facts_list,
                 user_likes=user_likes,
-                recent_conversation=recent_conversation
+                recent_conversation=recent_conversation,
+                action_history=action_history,
+                current_action=current_action
             )
         elif trigger_type == "window_change":
             return build_window_change_prompt(
@@ -138,7 +154,9 @@ class EmotionAnalyzer(QObject):
                 current_window=current_window,
                 known_facts=facts_list,
                 user_likes=user_likes,
-                recent_conversation=recent_conversation
+                recent_conversation=recent_conversation,
+                action_history=action_history,
+                current_action=current_action
             )
         else:
             return build_random_prompt(
@@ -147,7 +165,9 @@ class EmotionAnalyzer(QObject):
                 current_window=current_window,
                 known_facts=facts_list,
                 user_likes=user_likes,
-                recent_conversation=recent_conversation
+                recent_conversation=recent_conversation,
+                action_history=action_history,
+                current_action=current_action
             )
 
     def _parse_response(self, text: str) -> Optional[tuple]:

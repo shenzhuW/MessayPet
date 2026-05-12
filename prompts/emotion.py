@@ -51,8 +51,8 @@ EMOTION_JSON_FORMAT = """请分析并返回 JSON（直接输出 JSON，不要任
 {{
   "emotion": "当前情绪（开心/委屈/困倦/饥饿/好奇/平静/兴奋）",
   "intensity": 0.0-1.0,
-  "reason": "判断理由（30字以内，句式和话题要与最近对话明显不同，可以从以下选择：陈述句/感叹句/吐槽句/撒娇句/疑问句）",
-  "bubble_text": "你想说的话（20字以内，句式和话题要与最近对话明显不同，可以从以下选择：陈述句/感叹句/吐槽句/撒娇句/疑问句）"
+  "reason": "判断理由（100字以内）",
+  "bubble_text": "你想说的话（100字以内，句式和话题要与最近对话明显不同，可以从以下选择：陈述句/感叹句/吐槽句/撒娇句/疑问句）"
 }}"""
 
 # 启动指令
@@ -120,7 +120,9 @@ def build_interaction_prompt(
     current_window: str = "",
     known_facts: list = None,
     user_likes: list = None,
-    recent_conversation: str = ""
+    recent_conversation: str = "",
+    action_history: str = "",
+    current_action: str = ""
 ) -> str:
     """构建互动触发的 prompt"""
     parts = []
@@ -173,6 +175,14 @@ def build_interaction_prompt(
     if recent_conversation:
         parts.append(f"【最近对话】\n{recent_conversation}")
 
+    # 动作历史
+    if action_history:
+        parts.append(f"【动作历史】\n{action_history}")
+
+    # 当前动作
+    if current_action:
+        parts.append(f"【当前动作】{current_action}")
+
     # 启动指令
     parts.append(STARTUP_INSTRUCTION)
 
@@ -185,7 +195,9 @@ def build_window_change_prompt(
     current_window: str = "",
     known_facts: list = None,
     user_likes: list = None,
-    recent_conversation: str = ""
+    recent_conversation: str = "",
+    action_history: str = "",
+    current_action: str = ""
 ) -> str:
     """构建窗口切换触发的 prompt"""
     parts = []
@@ -238,6 +250,14 @@ def build_window_change_prompt(
     if recent_conversation:
         parts.append(f"【最近对话】\n{recent_conversation}")
 
+    # 动作历史
+    if action_history:
+        parts.append(f"【动作历史】\n{action_history}")
+
+    # 当前动作
+    if current_action:
+        parts.append(f"【当前动作】{current_action}")
+
     # 启动指令
     parts.append(STARTUP_INSTRUCTION)
 
@@ -250,7 +270,9 @@ def build_random_prompt(
     current_window: str = "",
     known_facts: list = None,
     user_likes: list = None,
-    recent_conversation: str = ""
+    recent_conversation: str = "",
+    action_history: str = "",
+    current_action: str = ""
 ) -> str:
     """构建随机/点击触发的 prompt"""
     parts = []
@@ -305,6 +327,14 @@ def build_random_prompt(
     # 近期对话
     if recent_conversation:
         parts.append(f"【最近对话】\n{recent_conversation}")
+
+    # 动作历史
+    if action_history:
+        parts.append(f"【动作历史】\n{action_history}")
+
+    # 当前动作
+    if current_action:
+        parts.append(f"【当前动作】{current_action}")
 
     # 启动指令
     parts.append("")

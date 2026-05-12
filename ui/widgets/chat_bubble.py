@@ -67,7 +67,9 @@ class ChatBubble(QWidget):
         from PySide6.QtCore import QDateTime
         current_time = QDateTime.currentMSecsSinceEpoch()
 
-        if self._locked_until > current_time and self.isVisible():
+        # 如果气泡锁定中且尚未到期，且当前有可见内容，则不替换
+        # 但如果 _locked_until 是未来时间（刚设置的），说明是新的锁定请求，应该允许
+        if self._locked_until > current_time + 1000 and self.isVisible():
             return
 
         # 停止所有动画和定时器
@@ -176,13 +178,16 @@ class ChatBubble(QWidget):
         max_width = self._calc_max_width() - 40
 
         display_text = self._text[:self._displayed_chars]
+
+        # 使用带换行的 boundingRect 计算
         text_rect = fm.boundingRect(
             0, 0, max_width, 0,
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
+            Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap,
             display_text
         )
 
-        bubble_width = max(80, min(text_rect.width() + padding * 2, max_width))
+        # 计算宽度和高度（取实际文本宽度或最大宽度）
+        bubble_width = min(max_width + padding * 2, max(80, text_rect.width() + padding * 2))
         bubble_height = text_rect.height() + padding * 2
         tail_size = 12
 
@@ -265,7 +270,7 @@ class ChatBubble(QWidget):
         painter.setPen(QPen(self._text_color))
         painter.drawText(
             bubble_rect.adjusted(padding, padding, -padding, -padding),
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
+            Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap,
             display_text
         )
 

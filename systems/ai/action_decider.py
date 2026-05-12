@@ -75,9 +75,9 @@ class ActionDecider:
         def run_in_thread():
             try:
                 prompt = self._build_decision_prompt()
-                # print(f"\n========== [ActionDecider] Prompt ==========\n{prompt}\n==========================================")
+                print(f"\n========== [ActionDecider] Prompt ==========\n{prompt}\n==========================================")
                 response = self.llm_client.chat_complete(prompt)
-                # print(f"\n========== [ActionDecider] Response ==========\n{response}\n==========================================")
+                print(f"\n========== [ActionDecider] Response ==========\n{response}\n==========================================")
                 result = None
                 if response and response != "[Timeout]":
                     result = self._parse_decision(response)
@@ -128,6 +128,9 @@ class ActionDecider:
             if all_facts:
                 known_facts = [f for f in all_facts if f.get("confidence", 0) >= 0.7]
 
+        # 获取气泡历史
+        bubble_history = self.action_history.to_bubble_prompt_string() if self.action_history else ""
+
         return build_action_prompt(
             role_info=role_info,
             stats=stats,
@@ -136,6 +139,7 @@ class ActionDecider:
             state_actions=state,
             action_descriptions=descriptions,
             action_history=action_history,
+            bubble_history=bubble_history,
             known_facts=known_facts
         )
 
