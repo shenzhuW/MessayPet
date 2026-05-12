@@ -157,7 +157,9 @@ class PetWindow(QWidget):
             action_history=self._action_history
         )
         # 连接气泡信号到显示方法
-        self._emotion_analyzer.bubble_ready.connect(lambda text, source: self._show_behavior(text, source=source))
+        self._emotion_analyzer.bubble_ready.connect(lambda text, choices, source: self._show_behavior(text, source=source, choices=choices))
+        # 连接气泡选项选择信号
+        self.chat_bubble.choice_made.connect(self._on_choice_made)
         self._action_decider = ActionDecider(
             llm_client=self.llm_client,
             skin_manager=self.skin_manager,
@@ -225,6 +227,9 @@ class PetWindow(QWidget):
         # 窗口切换冷却时间
         self._last_window_trigger = 0
         self._window_trigger_cooldown = 5000  # 5秒冷却
+
+        # 上次气泡显示时间（用于控制触发间隔）
+        self._last_bubble_time = 0
 
         # 订阅事件
         self._subscribe_events()
@@ -808,7 +813,7 @@ class PetWindow(QWidget):
         # 安排下一次随机触发
         self._schedule_random_trigger()
 
-    def _show_behavior(self, text: str, min_duration: int = 4000, reset_border: bool = True, reset_timer: bool = True, source: str = "unknown", record_to_history: bool = True):
+    def _show_behavior(self, text: str, min_duration: int = 5000, reset_border: bool = True, reset_timer: bool = True, source: str = "unknown", record_to_history: bool = True, choices: list = None):
         """显示行为气泡
         Args:
             text: 显示的文字
@@ -817,6 +822,7 @@ class PetWindow(QWidget):
             reset_timer: 是否重置随机触发定时器
             source: 气泡来源标识
             record_to_history: 是否记录到历史
+            choices: 选项列表，如果有选项则显示在气泡下方
         """
         from PySide6.QtCore import QDateTime
         current_time = QDateTime.currentMSecsSinceEpoch()
@@ -833,11 +839,63 @@ class PetWindow(QWidget):
         if text and self._action_history and record_to_history:
             self._action_history.add_bubble(text, source=source)
 
-        self.chat_bubble.show_text(text, duration=min_duration)
+        # 记录到对话历史（用于 prompt 中的【最近说过的】）
+        if text and self.memory_manager and hasattr(self.memory_manager, 'add_message'):
+            self.memory_manager.add_message("assistant", text)
+
+        # 隐藏之前的选项按钮
+        if hasattr(self, '_choice_buttons') and self._choice_buttons:
+            self._choice_buttons.hide()
+
+        self.chat_bubble.show_text(text, duration=min_duration, choices=choices)
         self._update_bubble_position()
+
+        # 记录本次气泡时间
+        import time
+        self._last_bubble_time = time.time() * 1000
+
         # 非随机触发后，重置定时器
         if reset_timer:
             self._schedule_random_trigger()
+
+    def _update_choice_buttons_position(self):
+        """更新选项按钮位置"""
+        # 如果气泡不可见，也隐藏选项按钮
+        if not self.chat_bubble.isVisible():
+            if hasattr(self, '_choice_buttons') and self._choice_buttons:
+                self._choice_buttons.hide()
+            return
+
+        if hasattr(self, '_choice_buttons') and self._choice_buttons and self._choice_buttons.isVisible():
+            bubble_x = self.chat_bubble.x()
+            bubble_y = self.chat_bubble.y()
+            bubble_width = self.chat_bubble.width()
+
+            buttons_width = self._choice_buttons.width()
+            x = bubble_x + (bubble_width - buttons_width) // 2
+            y = bubble_y + self.chat_bubble.height() + 5
+            self._choice_buttons.move(int(x), int(y))
+
+    def _on_choice_made(self, choice: str):
+        """用户选择了某个选项"""
+        print(f"[PetWindow] 用户选择了: {choice}")
+        # 记录选择到动作历史
+        if self._action_history:
+            self._action_history.set_last_choice(choice)
+
+        # 记录到对话历史（用户消息 + 选择）
+        if self.memory_manager and hasattr(self.memory_manager, 'add_message'):
+            self.memory_manager.add_message("user", f"选择了「{choice}」")
+
+        # 强制隐藏并重置状态
+        self.chat_bubble._is_hiding = False
+        self.chat_bubble._fade_anim.stop()
+        QWidget.hide(self.chat_bubble)
+        self.chat_bubble.setWindowOpacity(1.0)
+
+        # 调用 EmotionAnalyzer 生成 LLM 响应
+        self._emotion_analyzer._current_interaction = f"主人帮年糕「{choice}」"
+        self._emotion_analyzer.analyze_and_generate(trigger_type="interaction")
 
     def _update_bubble_text(self, text: str, duration: int = 5000, record_to_history: bool = True):
         """强制更新气泡文本（绕过锁定检查，用于 hook 通知）"""
@@ -961,9 +1019,12 @@ class PetWindow(QWidget):
         # 设置当前正在执行的动作
         self._action_history.set_current_action(action)
 
-        # 30% 概率显示动作气泡
+        # 30% 概率显示动作气泡（需与上次气泡间隔10秒）
         if result.bubble_text and random.random() < 0.3:
-            self._show_behavior(result.bubble_text, min_duration=3000, source="action")
+            import time
+            now = time.time() * 1000
+            if self._last_bubble_time == 0 or now - self._last_bubble_time >= 10000:
+                self._show_behavior(result.bubble_text, min_duration=5000, source="action")
 
         # 更新当前动作
         self._random_walker.set_action(action)
@@ -1035,9 +1096,13 @@ class PetWindow(QWidget):
             return
         self._last_window_trigger = now
 
+        # 检查与上次气泡的时间间隔（至少10秒）
+        if self._last_bubble_time > 0 and now - self._last_bubble_time < 10000:
+            return
+
         # 30% 概率触发情绪分析
         if random.random() < 0.3:
-                        self._emotion_analyzer.analyze_and_generate(trigger_type="window_change")
+            self._emotion_analyzer.analyze_and_generate(trigger_type="window_change")
 
     def _reset_tripple_click(self):
         """重置三击计数"""

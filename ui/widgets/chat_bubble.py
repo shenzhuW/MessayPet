@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import QWidget, QLabel, QSizePolicy
-from PySide6.QtCore import QTimer, Qt, QPoint, QRect, QSize, QPropertyAnimation, QEasingCurve
+from PySide6.QtCore import QTimer, Qt, QPoint, QRect, QSize, QPropertyAnimation, QEasingCurve, Signal
 from PySide6.QtGui import QFont, QFontMetrics, QPainter, QColor, QBrush, QPen, QPainterPath, QPolygon, QRegion
 
 # 星露谷调色板
@@ -8,17 +8,28 @@ PIXEL_BG = "#F5F0E1"
 PIXEL_BORDER = "#8b6914"
 BORDER_WAITING = "#c44040"
 BORDER_COMPLETE = "#5a9c32"
+HOVER_BG = "#E8E0C8"
 
 
 class ChatBubble(QWidget):
     """高级气泡组件 - 使用 QWidget + QPainter 实现"""
 
+    # 选择信号
+    choice_made = Signal(str)
+
     MAX_CHARS_PER_LINE = 25
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowFlags(Qt.WindowType.ToolTip)
+        # 使用 FramelessWindowHint + AlwaysOnTop 而不是 ToolTip，确保鼠标事件正常
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint |
+            Qt.WindowType.ToolTip |
+            Qt.WindowType.WindowStaysOnTopHint
+        )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)  # 启用悬停事件
+        self.setMouseTracking(True)  # 启用鼠标追踪
 
         self._text = ""
         self._displayed_chars = 0
@@ -54,6 +65,12 @@ class ChatBubble(QWidget):
         self._font = QFont("Microsoft YaHei UI", 10)
         self._font.setBold(False)
 
+        # 选项相关
+        self._choices: list = []
+        self._hovered_index = -1
+        self._choice_font = QFont("Microsoft YaHei UI", 9)
+        self._choice_height = 28
+
         # 隐藏气泡时重置
         self._pending_hide = False
 
@@ -62,14 +79,28 @@ class ChatBubble(QWidget):
         fm = QFontMetrics(self._font)
         return fm.horizontalAdvance("一" * self.MAX_CHARS_PER_LINE) + 40
 
-    def show_text(self, text: str, parent_pos: tuple = None, duration: int = 4000):
-        """显示文字气泡"""
+    def show_text(self, text: str, parent_pos: tuple = None, duration: int = 4000, choices: list = None, force: bool = False):
+        """显示文字气泡
+
+        Args:
+            text: 显示的文本
+            parent_pos: 位置
+            duration: 显示时长（毫秒）
+            choices: 选项列表，如果不为空则显示在气泡下方
+            force: 是否强制显示（忽略锁定检查）
+        """
         from PySide6.QtCore import QDateTime
         current_time = QDateTime.currentMSecsSinceEpoch()
 
+        # 如果正在隐藏动画中，先停止它
+        if self._is_hiding:
+            self._fade_anim.stop()
+            self._is_hiding = False
+
         # 如果气泡锁定中且尚未到期，且当前有可见内容，则不替换
         # 但如果 _locked_until 是未来时间（刚设置的），说明是新的锁定请求，应该允许
-        if self._locked_until > current_time + 1000 and self.isVisible():
+        # force=True 时跳过检查（用于用户选择后的响应）
+        if not force and self._locked_until > current_time + 1000 and self.isVisible():
             return
 
         # 停止所有动画和定时器
@@ -80,6 +111,8 @@ class ChatBubble(QWidget):
 
         self._text = text
         self._displayed_chars = len(text)
+        self._choices = choices[:2] if choices and len(choices) >= 2 else []  # 最多两个选项
+        self._hovered_index = -1
 
         # 预先计算尺寸
         self._calculate_and_resize()
@@ -88,6 +121,7 @@ class ChatBubble(QWidget):
         self.show()
         self.raise_()
         self.setWindowOpacity(1.0)
+        self.update()
 
         # 启动隐藏定时器
         self._current_hide_duration = duration
@@ -124,6 +158,8 @@ class ChatBubble(QWidget):
         self._timer.stop()
         self._hide_timer.stop()
         self._locked_until = 0
+        self._choices = []  # 隐藏时清除选项
+        self._hovered_index = -1
 
         # 快速淡出然后隐藏
         self._fade_anim.stop()
@@ -193,6 +229,12 @@ class ChatBubble(QWidget):
 
         if self._tail_direction == "bottom":
             bubble_height += tail_size
+
+        # 如果有选项，增加选项区域高度
+        if self._choices:
+            gap = 8
+            button_width = (bubble_width - gap) // 2
+            bubble_height += self._choice_height + gap
 
         self.resize(bubble_width, bubble_height)
 
@@ -268,11 +310,29 @@ class ChatBubble(QWidget):
         # 绘制文字
         painter.setFont(self._font)
         painter.setPen(QPen(self._text_color))
-        painter.drawText(
-            bubble_rect.adjusted(padding, padding, -padding, -padding),
-            Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap,
-            display_text
-        )
+        # 文字区域需要减去选项区域的高度
+        if self._choices:
+            text_height = bubble_rect.height() - self._choice_height - 8
+            text_rect = QRect(
+                bubble_rect.left() + padding,
+                bubble_rect.top() + padding,
+                bubble_rect.width() - padding * 2,
+                text_height
+            )
+            painter.drawText(
+                text_rect,
+                Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap,
+                display_text
+            )
+        else:
+            painter.drawText(
+                bubble_rect.adjusted(padding, padding, -padding, -padding),
+                Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap,
+                display_text
+            )
+
+        # 绘制选项按钮
+        self._draw_choices(painter, bubble_rect)
 
     def _draw_rounded_rect(self, painter: QPainter, rect: QRect, radius: int):
         """绘制圆角矩形"""
@@ -319,9 +379,77 @@ class ChatBubble(QWidget):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawPath(tail_path)
 
+    def _draw_choices(self, painter: QPainter, bubble_rect: QRect):
+        """绘制选项按钮"""
+        if not self._choices:
+            return
+
+        gap = 8
+        choice_width = (bubble_rect.width() - gap) // 2
+        choice_y = bubble_rect.bottom() - self._choice_height
+
+        for i, choice in enumerate(self._choices):
+            x = bubble_rect.left() + i * (choice_width + gap)
+
+            # 背景颜色
+            if i == self._hovered_index:
+                bg_color = QColor(HOVER_BG)
+            else:
+                bg_color = QColor(PIXEL_BG)
+
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(bg_color))
+            painter.drawRoundedRect(x, choice_y, choice_width, self._choice_height, 6, 6)
+
+            # 边框
+            border_color = QColor(PIXEL_BORDER)
+            pen = QPen(border_color, 2)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(x, choice_y, choice_width, self._choice_height, 6, 6)
+
+            # 文字
+            painter.setFont(self._choice_font)
+            painter.setPen(QPen(QColor(PIXEL_TEXT)))
+            painter.drawText(
+                int(x), int(choice_y), int(choice_width), int(self._choice_height),
+                Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter,
+                choice
+            )
+
+    def mouseMoveEvent(self, event):
+        """鼠标移动检测悬停"""
+        if not self._choices:
+            super().mouseMoveEvent(event)
+            return
+
+        x = event.position().x()
+        gap = 8
+        choice_width = (self.width() - gap) // 2
+
+        old_hovered = self._hovered_index
+        if x < choice_width:
+            self._hovered_index = 0
+        elif x >= choice_width + gap and len(self._choices) > 1:
+            self._hovered_index = 1
+        else:
+            self._hovered_index = -1
+
+        if old_hovered != self._hovered_index:
+            self.update()
+
     def mousePressEvent(self, event):
-        self.hide()
-        self.reset_border()
+        """点击选项或气泡"""
+        if self._choices and self._hovered_index >= 0:
+            # 点击了选项
+            choice = self._choices[self._hovered_index]
+            self.choice_made.emit(choice)
+            self.hide()
+            self.reset_border()
+        else:
+            # 点击了气泡空白区域，隐藏气泡
+            self.hide()
+            self.reset_border()
 
     def minimumSizeHint(self):
         return QSize(80, 40)

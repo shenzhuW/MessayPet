@@ -30,6 +30,7 @@ class ActionHistory:
         self._bubble_records: List[BubbleRecord] = []
         self._bubble_max_size = 20  # 限制为最近20条
         self._current_action: str = ""  # 当前正在执行的动作
+        self._last_choice: str = ""  # 用户上次选择的选项
 
     def set_current_action(self, action: str):
         """设置当前正在执行的动作"""
@@ -42,6 +43,14 @@ class ActionHistory:
     def get_current_action(self) -> str:
         """获取当前正在执行的动作"""
         return self._current_action
+
+    def set_last_choice(self, choice: str):
+        """设置用户选择的选项"""
+        self._last_choice = choice
+
+    def get_last_choice(self) -> str:
+        """获取用户上次选择的选项"""
+        return self._last_choice
 
     def add(self, action: str, duration: int):
         """添加动作记录"""

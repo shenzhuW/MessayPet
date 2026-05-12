@@ -17,8 +17,8 @@ from prompts.emotion import (
 class EmotionAnalyzer(QObject):
     """LLM 驱动的情绪分析 + 气泡生成"""
 
-    # Signal to show bubble from main thread (text, source)
-    bubble_ready = Signal(str, str)
+    # Signal to show bubble from main thread (text, choices, source)
+    bubble_ready = Signal(str, list, str)
 
     def __init__(self, llm_client, memory_manager, stat_manager, window_monitor, event_bus=None, action_history=None):
         super().__init__()
@@ -69,7 +69,7 @@ class EmotionAnalyzer(QObject):
                 if response and response != "[Timeout]":
                     result = self._parse_response(response)
                     if result:
-                        emotion, intensity, reason, bubble_text = result
+                        emotion, intensity, reason, bubble_text, choices = result
                         self._last_emotion = {
                             "emotion": emotion,
                             "intensity": intensity,
@@ -85,12 +85,8 @@ class EmotionAnalyzer(QObject):
                                 "reason": reason
                             })
 
-                        # 记录气泡到记忆
-                        if self.memory_manager and hasattr(self.memory_manager, 'add_message'):
-                            self.memory_manager.add_message("assistant", bubble_text)
-
-                        # 发送气泡信号（带上来源）
-                        self.bubble_ready.emit(bubble_text, trigger_type)
+                        # 发送气泡信号（带上 choices 和来源）
+                        self.bubble_ready.emit(bubble_text, choices, trigger_type)
 
             except Exception as e:
                 import traceback
@@ -128,6 +124,11 @@ class EmotionAnalyzer(QObject):
         if self.action_history:
             current_action = self.action_history.get_current_action() or ""
 
+        # 获取用户上次选择的选项
+        last_choice = ""
+        if self.action_history:
+            last_choice = self.action_history.get_last_choice() or ""
+
         # 获取当前窗口
         current_window = self.window_monitor.get_current_title() if self.window_monitor else ""
 
@@ -145,7 +146,8 @@ class EmotionAnalyzer(QObject):
                 user_likes=user_likes,
                 recent_conversation=recent_conversation,
                 action_history=action_history,
-                current_action=current_action
+                current_action=current_action,
+                last_choice=last_choice
             )
         elif trigger_type == "window_change":
             return build_window_change_prompt(
@@ -156,7 +158,8 @@ class EmotionAnalyzer(QObject):
                 user_likes=user_likes,
                 recent_conversation=recent_conversation,
                 action_history=action_history,
-                current_action=current_action
+                current_action=current_action,
+                last_choice=last_choice
             )
         else:
             return build_random_prompt(
@@ -167,7 +170,8 @@ class EmotionAnalyzer(QObject):
                 user_likes=user_likes,
                 recent_conversation=recent_conversation,
                 action_history=action_history,
-                current_action=current_action
+                current_action=current_action,
+                last_choice=last_choice
             )
 
     def _parse_response(self, text: str) -> Optional[tuple]:
@@ -217,6 +221,7 @@ class EmotionAnalyzer(QObject):
                 intensity = float(data.get("intensity", 0.5))
                 reason = data.get("reason", "")
                 bubble_text = data.get("bubble_text", "")
+                choices = data.get("choices", [])
 
                 # 验证情绪有效性
                 if emotion not in EmotionState.VALID_EMOTIONS:
@@ -236,7 +241,7 @@ class EmotionAnalyzer(QObject):
                     if emotion not in EmotionState.VALID_EMOTIONS:
                         emotion = "neutral"
 
-                return (emotion, intensity, reason, bubble_text.strip())
+                return (emotion, intensity, reason, bubble_text.strip(), choices)
 
             except (json.JSONDecodeError, ValueError) as e:
                 print(f"[EmotionAnalyzer] JSON parse error: {e}, trying fallback...")

@@ -52,7 +52,8 @@ EMOTION_JSON_FORMAT = """请分析并返回 JSON（直接输出 JSON，不要任
   "emotion": "当前情绪（开心/委屈/困倦/饥饿/好奇/平静/兴奋）",
   "intensity": 0.0-1.0,
   "reason": "判断理由（100字以内）",
-  "bubble_text": "你想说的话（30-70字随机，句式和话题要与最近对话明显不同，可以从以下选择：陈述句/感叹句/吐槽句/撒娇句/疑问句）"
+  "bubble_text": "你想说的话（30-70字随机，句式和话题要与最近对话明显不同，可以从以下选择：陈述句/感叹句/吐槽句/撒娇句/疑问句）",
+  "choices": ["选项1", "选项2"]（不要出现的太频率，bubble_text具有强相关的选项时才让用户选择，否则为空）
 }}"""
 
 # 启动指令
@@ -122,7 +123,8 @@ def build_interaction_prompt(
     user_likes: list = None,
     recent_conversation: str = "",
     action_history: str = "",
-    current_action: str = ""
+    current_action: str = "",
+    last_choice: str = ""
 ) -> str:
     """构建互动触发的 prompt"""
     parts = []
@@ -183,6 +185,10 @@ def build_interaction_prompt(
     if current_action:
         parts.append(f"【当前动作】{current_action}")
 
+    # 用户上次选择的选项
+    if last_choice:
+        parts.append(f"【用户偏好】上次选择了：{last_choice}，请继续这个方向")
+
     # 启动指令
     parts.append(STARTUP_INSTRUCTION)
 
@@ -197,7 +203,8 @@ def build_window_change_prompt(
     user_likes: list = None,
     recent_conversation: str = "",
     action_history: str = "",
-    current_action: str = ""
+    current_action: str = "",
+    last_choice: str = ""
 ) -> str:
     """构建窗口切换触发的 prompt"""
     parts = []
@@ -258,6 +265,10 @@ def build_window_change_prompt(
     if current_action:
         parts.append(f"【当前动作】{current_action}")
 
+    # 用户上次选择的选项
+    if last_choice:
+        parts.append(f"【用户偏好】上次选择了：{last_choice}，请基于这个选择进行回答")
+
     # 启动指令
     parts.append(STARTUP_INSTRUCTION)
 
@@ -272,7 +283,8 @@ def build_random_prompt(
     user_likes: list = None,
     recent_conversation: str = "",
     action_history: str = "",
-    current_action: str = ""
+    current_action: str = "",
+    last_choice: str = ""
 ) -> str:
     """构建随机/点击触发的 prompt"""
     parts = []
@@ -335,6 +347,10 @@ def build_random_prompt(
     # 当前动作
     if current_action:
         parts.append(f"【当前动作】{current_action}")
+
+    # 用户上次选择的选项
+    if last_choice:
+        parts.append(f"【用户偏好】上次选择了：{last_choice}，请基于这个选择进行回答")
 
     # 启动指令
     parts.append("")
